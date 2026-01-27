@@ -1,0 +1,23 @@
+# Ignore everything
+*
+
+# But not these files...
+!/.gitignore
+
+!*.go
+!go.sum
+!go.mod
+!.golangci.yml
+!Dockerfile
+!CHANGELOG.md
+!.github/workflows/*.yaml
+!.github/banner.png
+!deploy/*.yaml
+!.env.example
+
+!README.md
+!CONTRIBUTING.md
+!LICENSE
+
+# ...even if they are in subdirectories
+!*/
