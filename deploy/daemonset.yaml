@@ -18,6 +18,8 @@ spec:
         app.kubernetes.io/name: hailo-device-plugin
         app.kubernetes.io/component: device-plugin
     spec:
+      nodeSelector:
+        hailo.ai/device: "present"
       priorityClassName: system-node-critical
       tolerations:
         - key: CriticalAddonsOnly

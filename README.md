@@ -12,19 +12,62 @@ A Kubernetes [Device Plugin](https://kubernetes.io/docs/concepts/extend-kubernet
 
 ## Quick Start
 
-### 1. Deploy the Plugin
+### 1. Label Your Hailo Nodes
+
+The plugin only deploys on nodes with this label, preventing unnecessary pods on nodes without Hailo devices:
+
+```bash
+kubectl label nodes <node-name> hailo.ai/device=present
+```
+
+### 2. Deploy the Plugin
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/gllm-dev/hailo-device-plugin/main/deploy/daemonset.yaml
 ```
 
-### 2. Verify Installation
+### 3. Verify Installation
 
 ```bash
-kubectl get nodes -o json | jq '.items[].status.allocatable["hailo.ai/h10"]'
+# Check pod is running
+kubectl -n kube-system get pods -l app.kubernetes.io/name=hailo-device-plugin
+
+# Check device is registered
+kubectl get nodes -o custom-columns=NAME:.metadata.name,HAILO:.status.allocatable.hailo\\.ai/h10
 ```
 
-### 3. Use in Your Workloads
+Should show:
+```
+NAME          HAILO
+<node-name>   1
+```
+
+### 4. Test Device Access
+
+```bash
+cat << 'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hailo-test
+spec:
+  containers:
+  - name: test
+    image: debian:bookworm-slim
+    command: ["sh", "-c", "ls -la /dev/hailo* && sleep 3600"]
+    resources:
+      limits:
+        hailo.ai/h10: 1
+  restartPolicy: Never
+EOF
+
+# Check logs
+kubectl logs hailo-test
+```
+
+Should show `/dev/hailo0`
+
+### 5. Use in Your Workloads
 
 ```yaml
 apiVersion: v1
@@ -48,30 +91,23 @@ spec:
 
 ## Installation
 
-### Option 1: DaemonSet (Recommended)
+The DaemonSet uses a node selector (`hailo.ai/device=present`) to deploy only on labeled nodes.
 
-Deploy as a DaemonSet to automatically run on all nodes with Hailo devices:
+**1. Label nodes with Hailo devices:**
 
 ```bash
-kubectl apply -f deploy/daemonset.yaml
+kubectl label nodes <node-name> hailo.ai/device=present
 ```
 
-Or directly from the repository:
+**2. Deploy the plugin:**
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/gllm-dev/hailo-device-plugin/main/deploy/daemonset.yaml
 ```
 
-### Option 2: Helm (Coming Soon)
-
-```bash
-helm repo add gllm https://gllm-dev.github.io/charts
-helm install hailo-device-plugin gllm/hailo-device-plugin
-```
-
 ## Configuration
 
-Configure the plugin using environment variables:
+Configure the plugin using environment variables in the DaemonSet:
 
 | Environment Variable   | Default        | Description                          |
 |------------------------|----------------|--------------------------------------|
@@ -80,14 +116,25 @@ Configure the plugin using environment variables:
 | `HAILO_DEVICE_PATH`    | `/dev`         | Path to device directory             |
 | `HAILO_DEVICE_PATTERN` | `hailo*`       | Glob pattern to match device files   |
 
-### Example: Hailo-8L Configuration
+### Example: Configuring for Hailo-8L
+
+Edit the DaemonSet to add environment variables:
+
+```bash
+kubectl edit daemonset hailo-device-plugin -n kube-system
+```
 
 ```yaml
-env:
-  - name: HAILO_RESOURCE_NAME
-    value: "hailo.ai/h8l"
-  - name: HAILO_ARCHITECTURE
-    value: "HAILO8L"
+spec:
+  template:
+    spec:
+      containers:
+        - name: hailo-device-plugin
+          env:
+            - name: HAILO_RESOURCE_NAME
+              value: "hailo.ai/h8l"
+            - name: HAILO_ARCHITECTURE
+              value: "HAILO8L"
 ```
 
 ## Supported Devices
@@ -99,17 +146,23 @@ env:
 | Hailo-8L                | `hailo.ai/h8l`   | `HAILO8L`    | No      |
 | Hailo-8                 | `hailo.ai/h8`    | `HAILO8`     | No      |
 
+## Building Inference Workloads
+
+This plugin handles device scheduling and allocation. For inference workloads, you'll need to build containers with HailoRT on your Hailo nodes (the SDK is not publicly redistributable).
+
+**Resources:**
+- [HailoRT SDK](https://hailo.ai/developer-zone/) - Runtime library for Hailo devices
+- [Hailo Model Zoo](https://github.com/hailo-ai/hailo_model_zoo) - Pre-trained models and examples
+- [hailo_model_zoo_genai](https://github.com/hailo-ai/hailo_model_zoo_genai) - LLM support (Ollama-compatible API)
+
 ## Building from Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/gllm-dev/hailo-device-plugin.git
 cd hailo-device-plugin
 
-# Build binary
 go build -o hailo-device-plugin ./cmd/plugin
 
-# Build container
 docker build -t hailo-device-plugin:local .
 ```
 
